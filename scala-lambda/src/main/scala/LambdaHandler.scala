@@ -11,5 +11,5 @@ class LambdaHandler extends RequestHandler[JavaMap[String, String], String]:
 
     logger.log("EVENT TYPE: " + event.getClass)
 
-    "Hello from Scala!"
-  
+    "OLOLOL another testtt!"
+
