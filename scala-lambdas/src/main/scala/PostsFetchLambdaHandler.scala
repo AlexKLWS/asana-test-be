@@ -10,7 +10,6 @@ import zio._
 import com.amazonaws.services.lambda.runtime.RequestHandler
 import io.circe._
 import io.circe.generic.auto._
-import io.circe.parser._
 import io.circe.syntax.EncoderOps
 
 
@@ -34,11 +33,10 @@ class PostsFetchLambdaHandler extends RequestHandler[APIGatewayV2HTTPEvent, APIG
 
     val uri = uri"https://api.producthunt.com/v2/api/graphql"
 
-    val request = query.toRequest(uri)
+    val token = sys.env("PRODUCT_HUNT_ACCESS_TOKEN")
+    val request = query.toRequest(uri).auth.bearer(token)
 
-    request.auth.bearer("tokennn")
-
-    send(query.toRequest(uri))
+    send(request)
       .map(_.body)
       .absolve
       .tap(res => ZIO.debug(s"Result: $res"))
