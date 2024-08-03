@@ -13,7 +13,8 @@ lazy val root = (project in file("."))
       "com.github.ghostdogpr" %% "caliban-client" % "2.8.1",
       "io.circe" %% "circe-core" % "0.14.9",
       "io.circe" %% "circe-generic" % "0.14.9",
-      "io.circe" %% "circe-parser" % "0.14.9"
+      "io.circe" %% "circe-parser" % "0.14.9",
+      "ch.qos.logback" % "logback-classic" % "1.1.3" % Runtime
     ),
     assembly / assemblyMergeStrategy := {
       case x if x.contains("io.netty.versions.properties") => MergeStrategy.discard
