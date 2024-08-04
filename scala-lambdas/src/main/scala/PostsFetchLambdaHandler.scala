@@ -1,6 +1,7 @@
 package asana.test
 
-import asana.test.ProductHuntClient._
+import ProductHuntClient._
+
 import caliban.client.SelectionBuilder
 import sttp.client3._
 import sttp.client3.asynchttpclient.zio.{AsyncHttpClientZioBackend, send}
@@ -12,17 +13,30 @@ import io.circe._
 import io.circe.generic.auto._
 import io.circe.syntax.EncoderOps
 
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.{Await, Future}
+import scala.util.{Failure, Success, Try}
+
 
 class PostsFetchLambdaHandler extends RequestHandler[APIGatewayV2HTTPEvent, APIGatewayV2HTTPResponse] {
 
-  private case class PostView(id: String, name: String, tagline: String, description: Option[String], createdAt: DateTime, thumbnailUrl: Option[String])
+  private case class TopicView(name: String, description: String)
+
+  private case class PostView(id: String, name: String, tagline: String, description: Option[String], createdAt: DateTime, thumbnailUrl: Option[String], topics: List[TopicView])
 
   private def fetchPosts(): ZIO[Any, Throwable, (Int, List[PostView])] = {
-    val post: SelectionBuilder[Post, PostView] =
-      (Post.id ~ Post.name ~ Post.tagline ~ Post.description ~ Post.createdAt ~ Post.thumbnail(Media.url()))
-        .mapN(PostView)
+    val topic: SelectionBuilder[Topic, TopicView] = (Topic.name ~ Topic.description).mapN(TopicView)
 
-    val query = Query.posts(last = Some(20)) {
+    val post: SelectionBuilder[Post, PostView] =
+      (Post.id ~ Post.name ~ Post.tagline ~ Post.description ~ Post.createdAt ~ Post.thumbnail(Media.url()) ~ Post.topics() {
+        TopicConnection.edges {
+          TopicEdge.node {
+            topic
+          }
+        }
+      }).mapN(PostView)
+
+    val query = Query.posts(last = Some(14)) {
       PostConnection.totalCount ~
         PostConnection.edges {
           PostEdge.node {
@@ -43,14 +57,10 @@ class PostsFetchLambdaHandler extends RequestHandler[APIGatewayV2HTTPEvent, APIG
       .provideSomeLayer(AsyncHttpClientZioBackend.layer())
   }
 
-
-  override def handleRequest(event: APIGatewayV2HTTPEvent, context: Context): APIGatewayV2HTTPResponse = {
-    val logger = context.getLogger
-    logger.log("EVENT TYPE: " + event.getClass)
-
+  private def fetchPostsWrapped(recommendedTopicNames: Seq[String]) = {
     val runtime = Runtime.default
 
-    val result = Unsafe.unsafe { implicit unsafe =>
+    Unsafe.unsafe { implicit unsafe =>
       runtime.unsafe.run(
         fetchPosts().foldZIO(
           err => ZIO.succeed(
@@ -61,9 +71,11 @@ class PostsFetchLambdaHandler extends RequestHandler[APIGatewayV2HTTPEvent, APIG
           ),
           postsData => {
             val (totalCount, posts) = postsData
+            val (forYouPosts, remainingPosts) = posts.partition(post => post.topics.exists(topic => recommendedTopicNames.contains(topic.name)))
             val responseJson = Json.obj(
               "totalCount" -> Json.fromInt(totalCount),
-              "posts" -> Json.fromValues(posts.map(_.asJson))
+              "forYou" -> Json.fromValues(forYouPosts.map(_.asJson)),
+              "posts" -> Json.fromValues(remainingPosts.map(_.asJson))
             )
             ZIO.succeed(
               APIGatewayV2HTTPResponse.builder()
@@ -75,7 +87,38 @@ class PostsFetchLambdaHandler extends RequestHandler[APIGatewayV2HTTPEvent, APIG
         )
       ).getOrThrowFiberFailure()
     }
+  }
 
-    result
+  override def handleRequest(event: APIGatewayV2HTTPEvent, context: Context): APIGatewayV2HTTPResponse = {
+    val logger = context.getLogger
+    logger.log("EVENT TYPE: " + event.getClass)
+
+    if (!event.getHeaders.containsKey("username")) {
+      return APIGatewayV2HTTPResponse.builder()
+        .withStatusCode(500)
+        .withBody("Missing Username!")
+        .build()
+    }
+
+    val username = event.getHeaders.get("username")
+
+    val resultFuture: Future[APIGatewayV2HTTPResponse] = DBQueries.getTopicsForTopUserViewedPosts(DBConnection.db, username).map { topics =>
+      val topicNames = topics.map(t => t.name)
+      fetchPostsWrapped(topicNames)
+    }
+
+    val timeout = 40.seconds.asScala
+
+    val result: Try[APIGatewayV2HTTPResponse] = Try(Await.result(resultFuture, timeout))
+
+    result match {
+      case Success(response) => response
+      case Failure(exception) =>
+        logger.log(s"Error occurred: ${exception.getMessage}")
+        APIGatewayV2HTTPResponse.builder()
+          .withStatusCode(500)
+          .withBody("Internal Server Error")
+          .build()
+    }
   }
 }

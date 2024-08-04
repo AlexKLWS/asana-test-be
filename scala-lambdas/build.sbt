@@ -14,7 +14,9 @@ lazy val root = (project in file("."))
       "io.circe" %% "circe-core" % "0.14.9",
       "io.circe" %% "circe-generic" % "0.14.9",
       "io.circe" %% "circe-parser" % "0.14.9",
-      "ch.qos.logback" % "logback-classic" % "1.1.3" % Runtime
+      "com.typesafe.slick" %% "slick" % "3.5.1",
+      "mysql" % "mysql-connector-java" % "8.0.33",
+      "com.typesafe.slick" %% "slick-codegen" % "3.5.1"
     ),
     assembly / assemblyMergeStrategy := {
       case x if x.contains("io.netty.versions.properties") => MergeStrategy.discard
