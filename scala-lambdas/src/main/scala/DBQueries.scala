@@ -5,6 +5,7 @@ import scala.concurrent.Future
 import scala.concurrent.ExecutionContext.Implicits.global
 
 case class SimpleUserViewedPost(viewedByUser: String, postId: Long)
+
 case class Topic(name: String, description: String)
 
 object DBQueries {
@@ -12,6 +13,7 @@ object DBQueries {
   def getTopicsForTopUserViewedPosts(db: Database, username: String): Future[Seq[Tables.TopicsRow]] = {
     val top3UserViewedPostsQuery = Tables.UserViewedPosts
       .filter(_.viewedByUser === username)
+      .sortBy(_.id.desc)
       .take(3)
 
     val query = for {
@@ -23,16 +25,15 @@ object DBQueries {
     db.run(query.result)
   }
 
-  def insertUserViewedPostWithTopics(db: Database,
-                                     simpleUserViewedPost: SimpleUserViewedPost,
-                                     topics: List[Topic]
-                                    ): Future[Unit] = {
-    val topicsRows = topics.map { topic =>
+  def insertUserViewedPostWithTopics(db: Database, username: String, post: PostView): Future[Unit] = {
+    val topicsRows = post.topics.map { topic =>
       Tables.TopicsRow(name = topic.name, description = Some(topic.description))
     }
 
+    val simpleUserViewedPost = SimpleUserViewedPost(username, post.id.toLong)
+
     val insertUserViewedPostAction = (Tables.UserViewedPosts.map(u => (u.viewedByUser, u.postId))
-      returning Tables.UserViewedPosts.map(_.id)) += (simpleUserViewedPost.viewedByUser, simpleUserViewedPost.postId)
+      += (simpleUserViewedPost.viewedByUser, simpleUserViewedPost.postId)).map(_ => simpleUserViewedPost.postId)
 
     val checkAndInsertTopicsAction = DBIO.sequence {
       topicsRows.map { topicRow =>
