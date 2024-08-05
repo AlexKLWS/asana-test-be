@@ -20,10 +20,6 @@ import scala.util.{Failure, Success, Try}
 
 class PostsFetchLambdaHandler extends RequestHandler[APIGatewayV2HTTPEvent, APIGatewayV2HTTPResponse] {
 
-  private case class TopicView(name: String, description: String)
-
-  private case class PostView(id: String, name: String, tagline: String, description: Option[String], createdAt: DateTime, thumbnailUrl: Option[String], topics: List[TopicView])
-
   private def fetchPosts(): ZIO[Any, Throwable, (Int, List[PostView])] = {
     val topic: SelectionBuilder[Topic, TopicView] = (Topic.name ~ Topic.description).mapN(TopicView)
 
@@ -103,7 +99,8 @@ class PostsFetchLambdaHandler extends RequestHandler[APIGatewayV2HTTPEvent, APIG
     val username = event.getHeaders.get("username")
 
     val resultFuture: Future[APIGatewayV2HTTPResponse] = DBQueries.getTopicsForTopUserViewedPosts(DBConnection.db, username).map { topics =>
-      val topicNames = topics.map(t => t.name)
+      logger.log(s"Topics: $topics")
+      val topicNames = topics.distinctBy(t => t.name).map(t => t.name)
       fetchPostsWrapped(topicNames)
     }
 
